@@ -90,7 +90,9 @@ enum MailThreadParser {
 
     // MARK: - Thread messages
 
-    private static func parseThreadMessages(_ raw: String) -> [EmailMessage] {
+    /// Parse `---END_MESSAGE---` blocks into email messages. Public so
+    /// `MailBridge` can re-fetch a thread after AX enrichment.
+    static func parseThreadMessages(_ raw: String) -> [EmailMessage] {
         let blocks = raw
             .components(separatedBy: "---END_MESSAGE---")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }

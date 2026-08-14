@@ -131,7 +131,15 @@ enum MailScripts {
     set output to output & "DRAFT_END" & linefeed
     set output to output & "---END_COMPOSER---" & linefeed
 
+    -- When the AppleScript path found recipients/draft (Pass 1), the thread
+    -- search runs here. When it didn't (broken macOS), MailBridge re-runs
+    -- `fetchThreadMessages` after the AX reader provides the real subject,
+    -- so skip it here to avoid a futile search on a window-name subject.
     if not isReply then
+        return output
+    end if
+
+    if recipientList is "" and draftContent is "" then
         return output
     end if
 
@@ -217,10 +225,101 @@ enum MailScripts {
     return output
     """
 
+    /// Search mailboxes for messages matching `baseSubject` and return them
+    /// as `---END_MESSAGE---` blocks. Called by `MailBridge` to re-fetch the
+    /// thread after the Accessibility reader provides the real subject on
+    /// macOS versions where the `outgoing messages` AppleScript collection
+    /// is broken.
+    static func fetchThreadMessages(baseSubject: String) -> String {
+        let escaped = baseSubject
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return """
+        set baseSubject to "\(escaped)"
+        set changed to true
+        repeat while changed
+            set changed to false
+            if baseSubject starts with "Re: " then
+                set baseSubject to text 5 thru -1 of baseSubject
+                set changed to true
+            else if baseSubject starts with "Re:" then
+                set baseSubject to text 4 thru -1 of baseSubject
+                set changed to true
+            else if baseSubject starts with "RE: " then
+                set baseSubject to text 5 thru -1 of baseSubject
+                set changed to true
+            else if baseSubject starts with "Fwd: " then
+                set baseSubject to text 6 thru -1 of baseSubject
+                set changed to true
+            else if baseSubject starts with "Fwd:" then
+                set baseSubject to text 5 thru -1 of baseSubject
+                set changed to true
+            else if baseSubject starts with "AW: " then
+                set baseSubject to text 5 thru -1 of baseSubject
+                set changed to true
+            else if baseSubject starts with "WG: " then
+                set baseSubject to text 5 thru -1 of baseSubject
+                set changed to true
+            end if
+        end repeat
+
+        if baseSubject is "" then
+            return ""
+        end if
+
+        set output to ""
+        tell application "Mail"
+            set threadMsgs to {}
+            try
+                repeat with acct in accounts
+                    repeat with mbName in {"INBOX", "Sent Messages", "Sent", "Gesendet", "Archive", "Archiv", "All Mail"}
+                        try
+                            set mb to mailbox mbName of acct
+                            set matches to (every message of mb whose subject contains baseSubject)
+                            set threadMsgs to threadMsgs & matches
+                        end try
+                    end repeat
+                end repeat
+            end try
+
+            set msgCount to count of threadMsgs
+            if msgCount > 20 then
+                set threadMsgs to items (msgCount - 19) thru msgCount of threadMsgs
+            end if
+
+            repeat with msg in threadMsgs
+                set output to output & "FROM:" & (sender of msg) & linefeed
+                try
+                    set rList to ""
+                    repeat with r in to recipients of msg
+                        if rList is not "" then set rList to rList & ", "
+                        set rList to rList & (address of r)
+                    end repeat
+                    set output to output & "TO:" & rList & linefeed
+                on error
+                    set output to output & "TO:unknown" & linefeed
+                end try
+                set output to output & "SUBJECT:" & (subject of msg) & linefeed
+                try
+                    set output to output & "DATE:" & (date sent of msg as string) & linefeed
+                on error
+                    set output to output & "DATE:Unknown" & linefeed
+                end try
+                set output to output & "BODY_START" & linefeed
+                try
+                    set output to output & (content of msg) & linefeed
+                on error
+                    set output to output & "(unable to read body)" & linefeed
+                end try
+                set output to output & "BODY_END" & linefeed
+                set output to output & "---END_MESSAGE---" & linefeed
+            end repeat
+        end tell
+        return output
+        """
+    }
+
     /// Write the generated reply into the current compose window.
-    /// Mail-scripting-only path: set `content of outgoing message 1`. If that
-    /// fails (no outgoing message visible to the API), fall back to placing
-    /// the text on the clipboard + activating Mail so the user can paste.
     static func insertReply(_ text: String) -> String {
         let escaped = text
             .replacingOccurrences(of: "\\", with: "\\\\")

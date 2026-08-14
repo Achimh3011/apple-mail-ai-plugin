@@ -77,7 +77,7 @@ final class MailBridge {
         // macOS versions). Fall back to the Accessibility reader when
         // permission is granted; otherwise return the context as-is.
         if context.recipients.isEmpty && context.currentDraft.isEmpty {
-            return enrichViaAccessibility(context: context)
+            return await enrichViaAccessibility(context: context)
         }
 
         return context
@@ -85,8 +85,11 @@ final class MailBridge {
 
     /// Opportunistically enrich the context via the AX reader. If AX isn't
     /// trusted or no compose window is found, the original context is
-    /// returned unchanged — never throws.
-    private static func enrichViaAccessibility(context: ComposerContext) -> ComposerContext {
+    /// returned unchanged — never throws. When AX provides a subject that
+    /// differs from the AppleScript one (e.g. the window name on broken
+    /// macOS), re-run the thread search with the corrected subject so the
+    /// thread is populated.
+    private static func enrichViaAccessibility(context: ComposerContext) async -> ComposerContext {
         guard AXPermissionChecker.isGranted() else {
             return context
         }
@@ -97,8 +100,17 @@ final class MailBridge {
             return context
         }
 
-        let thread = context.thread
         let subject = ax.subject.isEmpty ? context.subject : ax.subject
+
+        // Re-fetch the thread when the AX reader corrected the subject and
+        // the AppleScript path didn't already find a thread (it was skipped
+        // because recipients and draft were empty).
+        let thread: EmailThread?
+        if subject != context.subject && context.thread == nil {
+            thread = await fetchThread(subject: subject)
+        } else {
+            thread = context.thread
+        }
 
         return ComposerContext(
             recipients: ax.recipients,
@@ -107,6 +119,17 @@ final class MailBridge {
             thread: thread,
             composeWindowFrame: context.composeWindowFrame
         )
+    }
+
+    /// Search Mail's mailboxes for messages matching `subject` and build an
+    /// `EmailThread`. Returns `nil` if no messages are found.
+    private static func fetchThread(subject: String) async -> EmailThread? {
+        let raw = (try? await executeAppleScript(
+            MailScripts.fetchThreadMessages(baseSubject: subject)
+        )) ?? ""
+        let messages = MailThreadParser.parseThreadMessages(raw)
+        guard !messages.isEmpty else { return nil }
+        return EmailThread(subject: subject, messages: messages)
     }
 
     /// Write the reply directly into the current Mail compose window.
