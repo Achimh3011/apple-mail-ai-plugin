@@ -2,8 +2,8 @@ import Foundation
 
 /// TrustedTokens (trustedtokens.eu) exposes an OpenAI-compatible chat
 /// completions contract, so this client mirrors `OpenAIClient` with a
-/// different base URL. Model ids follow the `provider/model` convention
-/// (e.g. `skainet/zai-org/GLM-5.2`) and are sent verbatim. Selection is
+/// different base URL. Model IDs are sent verbatim, whether bare
+/// (e.g. `zai-org/GLM-5.3`) or prefixed with a route (e.g. `skainet/`). Selection is
 /// keyed by provider + id (see `SettingsStore.selectModel`) so an id that
 /// also exists on OpenRouter resolves to whichever copy the user picked.
 final class TrustedTokensClient: AIClient {

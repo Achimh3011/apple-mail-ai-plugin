@@ -60,7 +60,7 @@ extension AIModel {
 
         case .openrouter, .trustedtokens:
             // OpenRouter and TrustedTokens both pass slugs like
-            // `anthropic/claude-sonnet-4` / `skainet/zai-org/GLM-5.2`. Favour
+            // `anthropic/claude-sonnet-4` / `zai-org/GLM-5.3`. Favour
             // flagship families, penalise free/preview/deprecated tags and
             // non-text modalities.
             if id.contains("opus") || id.contains("gpt-5") || id.contains("o4") || id.contains("2.5-pro") || id.contains("glm-5") { score += 40 }
